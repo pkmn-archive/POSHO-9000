@@ -1,0 +1,34 @@
+{
+  "name": "ladderbot",
+  "version": "0.0.1",
+  "description": "Pokémon Showdown ladder bot",
+  "main": "build/index.js",
+  "types": "build/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pkmn-cc/LadderBot.git"
+  },
+  "author": "Kirk Scheibelhut",
+  "license": "MIT",
+  "dependencies": {
+    "@types/node": "^12.0.8",
+    "@types/websocket": "0.0.40",
+    "websocket": "^1.0.26"
+  },
+  "devDependencies": {
+    "gts": "^1.0.0",
+    "source-map-support": "^0.5.12",
+    "typescript": "^3.5.2"
+  },
+  "scripts": {
+    "check": "gts check",
+    "clean": "gts clean",
+    "compile": "tsc -p .",
+    "fix": "gts fix",
+    "start": "npm run compile && node build/index config.json",
+    "test": "true",
+    "prepare": "npm run compile",
+    "pretest": "npm run compile",
+    "posttest": "npm run check"
+  }
+}
