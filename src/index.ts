@@ -43,8 +43,8 @@ class Client {
   private queue: Promise<void>;
 
   private format: ID;
-  private prefix?: ID;
-  private rating?: number;
+  private prefix: ID;
+  private rating: number;
   private users: Set<ID>;
 
   private lastid?: string;
@@ -55,7 +55,7 @@ class Client {
 
     this.format = toID(this.config.format);
     this.prefix = toID(this.config.prefix);
-    this.rating = this.config.rating;
+    this.rating = this.config.rating || 0;
 
     this.users = new Set();
 
@@ -165,9 +165,6 @@ class Client {
   }
 
   tracking(battle: Battle) {
-    // If prefix isn't set and there are no tracked users, don't report anything
-    if (!this.prefix && !this.users.size) return false;
-
     const p1 = toID(battle.p1);
     const p2 = toID(battle.p2);
 
@@ -177,8 +174,8 @@ class Client {
     }
 
     // If a player has an our prefix, report if the battle is above the required rating
-    if (this.prefix && (p1.startsWith(this.prefix!) || p2.startsWith(this.prefix!))) {
-      return !this.rating || battle.minElo >= this.rating;
+    if (p1.startsWith(this.prefix) || p2.startsWith(this.prefix)) {
+      return battle.minElo >= this.rating;
     }
 
     return false;
@@ -188,6 +185,8 @@ class Client {
     const user = parts[3];
     const message = parts.slice(4).join('|');
     if (AUTH.has(user.charAt(0)) && message.charAt(0) === '.') {
+      console.info(`[${HHMMSS()}] ${user}: ${message.trim()}`);
+
       const parts = message.substring(1).split(' ');
       const command = toID(parts[0]);
       const argument = parts
@@ -199,15 +198,28 @@ class Client {
       switch (command) {
         case 'format':
           const format = toID(argument);
-          if (format) this.format = format;
+          if (format) {
+            this.format = format;
+          } else {
+            this.report(this.format);
+          }
           return;
         case 'prefix':
-          this.prefix = toID(argument);
+          const prefix = toID(argument);
+          if (prefix) {
+            this.prefix = prefix;
+          } else {
+            this.report(this.prefix);
+          }
           return;
         case 'elo':
         case 'rating':
           const rating = Number(argument);
-          if (rating) this.rating = rating;
+          if (rating) {
+            this.rating = rating;
+          } else {
+            this.report(`${this.rating}`);
+          }
           return;
         case 'add':
         case 'track':
@@ -266,6 +278,15 @@ class Client {
       });
     });
   }
+}
+
+function HHMMSS() {
+  const time = new Date();
+  return [
+    `0${time.getHours()}`.slice(-2),
+    `0${time.getMinutes()}`.slice(-2),
+    `0${time.getSeconds()}`.slice(-2),
+  ].join(':');
 }
 
 function toID(text: any): ID {
