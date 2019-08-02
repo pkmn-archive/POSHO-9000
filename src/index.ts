@@ -198,28 +198,22 @@ class Client {
       switch (command) {
         case 'format':
           const format = toID(argument);
-          if (format) {
-            this.format = format;
-          } else {
-            this.report(this.format);
-          }
+          if (format) this.format = format;
+          this.report(`**Format:** ${this.format}`);
           return;
         case 'prefix':
           const prefix = toID(argument);
-          if (prefix) {
-            this.prefix = prefix;
-          } else {
-            this.report(this.prefix);
-          }
+          if (prefix) this.prefix = prefix;
+          this.report(`**Prefix:** ${this.prefix}`);
           return;
         case 'elo':
         case 'rating':
           const rating = Number(argument);
           if (rating) {
             this.rating = rating;
-          } else {
-            this.report(`${this.rating}`);
+            this.report(`/status ${this.rating}`);
           }
+          this.report(`**Rating:** ${this.rating}`);
           return;
         case 'add':
         case 'track':
@@ -228,6 +222,7 @@ class Client {
           for (const user of argument.split(',')) {
             this.users.add(toID(user));
           }
+          this.tracked();
           return;
         case 'remove':
         case 'untrack':
@@ -236,6 +231,7 @@ class Client {
           for (const user of argument.split(',')) {
             this.users.delete(toID(user));
           }
+          this.tracked();
           return;
         case 'list':
         case 'tracked':
@@ -244,29 +240,44 @@ class Client {
         case 'watching':
         case 'followed':
         case 'following':
-          if (!this.users.size) {
-            this.report(`Not currently tracking any users.`);
-          } else {
-            const users = Array.from(this.users.values()).join(', ');
-            this.report(`Currently tracking ${this.users.size} users: ${users}`);
-          }
+          this.tracked();
           return;
         case 'start':
-          this.started = setInterval(() => {
-            const filter = this.rating && !this.users.size ? `, ${this.rating}` : '';
-            this.report(`/cmd roomlist ${this.format}${filter}`);
-          }, INTERVAL);
+          this.start();
           return;
         case 'stop':
-          if (this.started) {
-            clearInterval(this.started);
-            this.started = undefined;
-          }
+          this.stop();
           return;
         case 'leave':
+          this.stop();
           this.report(`/leave`); // :(
           return;
       }
+    }
+  }
+
+  tracked() {
+    if (!this.users.size) {
+      this.report(`Not currently tracking any users.`);
+    } else {
+      const users = Array.from(this.users.values()).join(', ');
+      this.report(`Currently tracking **${this.users.size}** users: ${users}`);
+    }
+  }
+
+  start() {
+    this.report(`/status ${this.rating}`);
+    this.started = setInterval(() => {
+      const filter = this.rating && !this.users.size ? `, ${this.rating}` : '';
+      this.report(`/cmd roomlist ${this.format}${filter}`);
+    }, INTERVAL);
+  }
+
+  stop() {
+    if (this.started) {
+      clearInterval(this.started);
+      this.started = undefined;
+      this.report(`/status (STOPPED) ${this.rating}`);
     }
   }
 
@@ -274,7 +285,7 @@ class Client {
     this.queue = this.queue.then(() => {
       this.connection!.send(`${this.config.room}|${message}`.replace(/\n/g, ''));
       return new Promise(resolve => {
-        setTimeout(resolve, 500);
+        setTimeout(resolve, 100);
       });
     });
   }
