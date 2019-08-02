@@ -2,6 +2,7 @@ import 'source-map-support/register';
 
 import * as crypto from 'crypto';
 import * as fs from 'fs';
+import * as http from 'http';
 import * as https from 'https';
 import * as path from 'path';
 import * as querystring from 'querystring';
@@ -9,6 +10,7 @@ import * as ws from 'websocket';
 
 const MINUTE = 60000;
 const INTERVAL = 1000;
+const EXPIRATION_SECONDS = 600;
 const ROOT = path.resolve(__dirname, '..');
 
 type ID = '' | string & { __isID: true };
@@ -149,13 +151,52 @@ class Client {
     const skipid = this.lastid;
     for (const [roomid, battle] of Object.entries(rooms)) {
       if (!this.tracking(battle) || (skipid && skipid >= roomid)) continue;
-
-      const style = (p: string) => this.stylePlayer(p);
-      const msg = `Battle started between ${style(battle.p1)} and ${style(battle.p2)}`;
-      this.report(
-        `/addhtmlbox <a href="/${roomid}" class="ilink">${msg}. (rated: ${battle.minElo})</a>`
-      );
+      this.linkBattle(roomid, battle);
       if (!this.lastid || this.lastid < roomid) this.lastid = roomid;
+    }
+  }
+
+  linkBattle(roomid: string, battle: Battle) {
+    const data = JSON.stringify({
+      expires: `${EXPIRATION_SECONDS}`,
+      tries: `${99999}`,
+      url: `https://play.pokemonshowdown.com/${roomid}`,
+    });
+
+    const options = {
+      hostname: 'once.ly',
+      path: '/',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Content-Length': data.length,
+      },
+    };
+    let body = '';
+    const req = http
+      .request(options, resp => {
+        resp.on('data', chunk => {
+          body += chunk;
+        });
+        resp.on('end', () => {
+          this.styleBattle(battle, `http://once.ly/${JSON.parse(body).id}`);
+        });
+      })
+      .on('error', err => {
+        console.error(err);
+        this.styleBattle(battle);
+      });
+    req.write(data);
+    req.end();
+  }
+
+  styleBattle(b: Battle, url?: string) {
+    const style = (p: string) => this.stylePlayer(p);
+    const msg = `Battle started between ${style(b.p1)} and ${style(b.p2)}. (rated: ${b.minElo})`;
+    if (url) {
+      this.report(`/addhtmlbox <a href="${url}" class="ilink">${msg}</a>`);
+    } else {
+      this.report(`/addhtmlbox ${msg}`);
     }
   }
 
