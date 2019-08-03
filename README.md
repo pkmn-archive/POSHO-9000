@@ -41,6 +41,7 @@ commands typed into chat:
 | `.watch PLAYER, ...`   | report on all battles for this player (or players, if multiple separated by commas are specified) regardless of rating | `.add`, `.track`, `.follow`        |
 | `.unwatch PLAYER, ...` | stop watching all battles from the player(s) specified (though they will still show if >= the rating)                  | `.remove`, `.untrack`, `.unfollow` |
 | `.watched`             | reports on which players are currently being 'watched'                                                                 | `.list`, `.tracked`, `.followed`   |
+| `.leaderboard N`       | displays the top N players on the leaderboard for the configured format and prefix                                     |                                    |
 | `.start`               | starts reporting on battles which match the configured criteria                                                        |                                    |
 | `.stop`                | stops reporting any battles                                                                                            |                                    |
 | `.leave`               | causes the bot to leave the room                                                                                       |                                    |

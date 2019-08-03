@@ -2,13 +2,16 @@ import 'source-map-support/register';
 
 import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as https from 'https';
 import * as path from 'path';
 import * as querystring from 'querystring';
+
+import http from 'axios';
+import * as cheerio from 'cheerio';
 import * as ws from 'websocket';
 
 const MINUTE = 60000;
 const INTERVAL = 1000;
+
 const ROOT = path.resolve(__dirname, '..');
 
 type ID = '' | string & { __isID: true };
@@ -31,6 +34,14 @@ interface Battle {
   p1: string;
   p2: string;
   minElo: number;
+}
+
+interface LeaderboardEntry {
+  name: string;
+  elo: number;
+  gxe: number;
+  glicko: number;
+  glickodev: number;
 }
 
 const CHAT = new Set(['chat', 'c', 'c:']);
@@ -100,10 +111,11 @@ class Client {
     }
   }
 
-  onChallstr(parts: string[]) {
+  async onChallstr(parts: string[]) {
     const id = parts[2];
     const str = parts[3];
 
+    const url = `https://play.pokemonshowdown.com/~~${this.config.serverid}/action.php`;
     const data = querystring.stringify({
       act: 'login',
       challengekeyid: id,
@@ -112,36 +124,16 @@ class Client {
       pass: this.config.password,
     });
 
-    const options = {
-      hostname: 'play.pokemonshowdown.com',
-      port: 443,
-      path: `/~~${this.config.serverid}/action.php`,
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Content-Length': data.length,
-      },
-    };
-
-    let body = '';
-    const req = https
-      .request(options, resp => {
-        resp.on('data', chunk => {
-          body += chunk;
-        });
-        resp.on('end', () => {
-          const result = JSON.parse(body.replace(/^]/, ''));
-          this.report(`/trn ${this.config.nickname},0,${result.assertion}`);
-          this.report('/join ' + this.config.room);
-          this.report('/avatar oak-gen1rb');
-        });
-      })
-      .on('error', err => {
-        console.error(err);
-        this.onChallstr(parts);
-      });
-    req.write(data);
-    req.end();
+    try {
+      const response = await http.post(url, data);
+      const result = JSON.parse(response.data.replace(/^]/, ''));
+      this.report(`/trn ${this.config.nickname},0,${result.assertion}`);
+      this.report('/join ' + this.config.room);
+      this.report('/avatar oak-gen1rb');
+    } catch (err) {
+      console.error(err);
+      this.onChallstr(parts);
+    }
   }
 
   onQueryresponse(parts: string[]) {
@@ -242,6 +234,9 @@ class Client {
         case 'following':
           this.tracked();
           return;
+        case 'leaderboard':
+          this.leaderboard(Number(argument) || 10);
+          return;
         case 'start':
           this.start();
           return;
@@ -263,6 +258,63 @@ class Client {
       const users = Array.from(this.users.values()).join(', ');
       this.report(`Currently tracking **${this.users.size}** users: ${users}`);
     }
+  }
+
+  async leaderboard(num: number) {
+    const url = `https://play.pokemonshowdown.com/~~${this.config.serverid}/ladder.php`;
+    const params = {
+      format: this.format,
+      output: 'html',
+      prefix: this.prefix,
+    };
+
+    const leaderboard: LeaderboardEntry[] = [];
+    try {
+      const response = await http.get(url, { params });
+      const $ = cheerio.load(response.data);
+      $('tr').each((i, tr) => {
+        if (!i) return;
+        const entry = {} as LeaderboardEntry;
+        $(tr)
+          .children('td')
+          .each((j, td) => {
+            const text = $(td).text();
+            if (j === 0) {
+              return; // rank === i + 1
+            } else if (j === 1) {
+              entry.name = text;
+            } else if (j === 2) {
+              entry.elo = Number(text);
+            } else if (j === 3) {
+              entry.gxe = Number(text.slice(0, -1));
+            } else if (j === 4) {
+              const [val, dev] = text.split(' ± ');
+              entry.glicko = Number(val);
+              entry.glickodev = Number(dev);
+            }
+          });
+        leaderboard.push(entry);
+      });
+    } catch (err) {
+      console.error(err);
+      this.report(`Unable to fetch the leaderboard for ${this.prefix}.`);
+    }
+    this.report(`/addhtmlbox ${this.styleLeaderboard(leaderboard.slice(0, num))}`);
+  }
+
+  styleLeaderboard(leaderboard: LeaderboardEntry[]) {
+    let buf = '<div class="ladder"><table>';
+    buf +=
+      '<tr><th></th><th>Name</th><th><abbr title="Elo rating">Elo</abbr></th><th><abbr title="user\'s percentage chance of winning a random battle (aka GLIXARE)">GXE</abbr></th><th><abbr title="Glicko-1 rating system: rating±deviation (provisional if deviation>100)">Glicko-1</abbr></th></tr>';
+    for (const [i, p] of leaderboard.entries()) {
+      const { h, s, l } = hsl(toID(p.name));
+      const name = `<font color="${hslToHex(h, s, l)}">${p.name}</font>`;
+      buf += `<tr><td>${i + 1}</td><td>${name}</td><td><strong>${
+        p.elo
+      }</strong></td><td>${p.gxe.toFixed(1)}%</td><td>${p.glicko} ± ${p.glickodev}</td></tr>`;
+    }
+    buf += '</table></div>';
+    return buf;
   }
 
   start() {
