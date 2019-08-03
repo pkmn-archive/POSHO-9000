@@ -33,18 +33,20 @@ Alternatively, `npm run compile && node build/index`.
 The bot responds to any staff (`%` or higher) and understands the following
 commands typed into chat:
 
-| **command**            | **description**                                                                                                        | **aliases?**                       |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
-| `.format FORMAT`       | changes the format (eg. 'gen7ou') from the default format specified in `config.json`                                   |                                    |
-| `.prefix PREFIX`       | changes the format (eg. 'LT63RB') from the default format specified in `config.json`                                   |                                    |
-| `.rating RATING`       | only report on battles with this rating or higher (minimum Elo of either player)                                       | `.elo`                             |
-| `.watch PLAYER, ...`   | report on all battles for this player (or players, if multiple separated by commas are specified) regardless of rating | `.add`, `.track`, `.follow`        |
-| `.unwatch PLAYER, ...` | stop watching all battles from the player(s) specified (though they will still show if >= the rating)                  | `.remove`, `.untrack`, `.unfollow` |
-| `.watched`             | reports on which players are currently being 'watched'                                                                 | `.list`, `.tracked`, `.followed`   |
-| `.leaderboard N`       | displays the top N players on the leaderboard for the configured format and prefix                                     |                                    |
-| `.start`               | starts reporting on battles which match the configured criteria                                                        |                                    |
-| `.stop`                | stops reporting any battles                                                                                            |                                    |
-| `.leave`               | causes the bot to leave the room                                                                                       |                                    |
+| **command** | **description** | **aliases?** |
+| ----------- | ----------------| -------------|
+| `.format FORMAT`| changes the format (eg. 'gen7ou') from the default format specified in `config.json` | |
+| `.prefix PREFIX` | changes the format (eg. 'LT63RB') from the default format specified in `config.json` | |
+| `.rating RATING` | only report on battles with this rating or higher (minimum Elo of either player) | `.elo` |
+| `.watch PLAYER, ...` | report on all battles for this player (or players, if multiple separated by commas are specified) regardless of rating | `.add`, `.track`, `.follow` |
+| `.unwatch PLAYER, ...` | stop watching all battles from the player(s) specified (though they will still show if >= the rating) | `.remove`, `.untrack`, `.unfollow` |
+| `.watched` | reports on which players are currently being 'watched' | `.list`, `.tracked`, `.followed` |
+| `.leaderboard N` | displays the top N players on the leaderboard for the configured format and prefix | |
+| `.showdiffs N` | starts reporting rises and drops within the top N players on the leaderboard for the configured format and prefix (negative value = only report movement around cutoff N) | `.unhidediffs`, `.startdiffs` |
+| `.hidediffs`| stops reporting rises and drops | `.unshowdiffs`, `.stopdiffs` |
+| `.start` | starts reporting on battles which match the configured criteria | |
+| `.stop` | stops reporting any battles | |
+| `.leave` | causes the bot to leave the room | |
 
 The most common usecase is to use `.rating` to tweak which battles get reported
 on (**NOTE:** a battle's rating is the *minimum* Elo of the two players

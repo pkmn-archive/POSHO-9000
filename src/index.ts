@@ -59,6 +59,8 @@ class Client {
   private users: Set<ID>;
 
   private lastid?: string;
+  private leaderboard?: LeaderboardEntry[];
+  private diffs?: NodeJS.Timeout;
   private started?: NodeJS.Timeout;
 
   constructor(config: Config) {
@@ -190,12 +192,18 @@ class Client {
       switch (command) {
         case 'format':
           const format = toID(argument);
-          if (format) this.format = format;
+          if (format && format !== this.format) {
+            this.format = format;
+            this.leaderboard = undefined;
+          }
           this.report(`**Format:** ${this.format}`);
           return;
         case 'prefix':
           const prefix = toID(argument);
-          if (prefix) this.prefix = prefix;
+          if (prefix && prefix !== this.prefix) {
+            this.prefix = prefix;
+            this.leaderboard = undefined;
+          }
           this.report(`**Prefix:** ${this.prefix}`);
           return;
         case 'elo':
@@ -235,7 +243,17 @@ class Client {
           this.tracked();
           return;
         case 'leaderboard':
-          this.leaderboard(Number(argument) || 10);
+          this.getLeaderboard(Number(argument) || 10);
+          return;
+        case 'showdiffs':
+        case 'startdiffs':
+        case 'unhidediffs':
+          this.showdiffs(Number(argument) || 10);
+          return;
+        case 'unshowdiffs':
+        case 'stopdiffs':
+        case 'hidediffs':
+          this.hidediffs();
           return;
         case 'start':
           this.start();
@@ -260,7 +278,7 @@ class Client {
     }
   }
 
-  async leaderboard(num: number) {
+  async getLeaderboard(num?: number) {
     const url = `https://play.pokemonshowdown.com/~~${this.config.serverid}/ladder.php`;
     const params = {
       format: this.format,
@@ -295,29 +313,98 @@ class Client {
           });
         leaderboard.push(entry);
       });
+      if (num) {
+        const table = this.styleLeaderboard(leaderboard.slice(0, Math.min(num, 25)));
+        this.report(`/addhtmlbox ${table}`);
+      }
     } catch (err) {
       console.error(err);
-      this.report(`Unable to fetch the leaderboard for ${this.prefix}.`);
+      if (num) this.report(`Unable to fetch the leaderboard for ${this.prefix}.`);
     }
-    this.report(`/addhtmlbox ${this.styleLeaderboard(leaderboard.slice(0, num))}`);
+
+    return leaderboard;
   }
 
   styleLeaderboard(leaderboard: LeaderboardEntry[]) {
     let buf = '<div class="ladder"><table>';
     buf +=
-      '<tr><th></th><th>Name</th><th><abbr title="Elo rating">Elo</abbr></th><th><abbr title="user\'s percentage chance of winning a random battle (aka GLIXARE)">GXE</abbr></th><th><abbr title="Glicko-1 rating system: rating±deviation (provisional if deviation>100)">Glicko-1</abbr></th></tr>';
+      '<tr><th></th><th>Name</th><th><abbr title="Elo rating">Elo</abbr></th>' +
+      '<th><abbr title="user\'s percentage chance of winning a random battle (aka GLIXARE)">GXE</abbr></th>' +
+      '<th><abbr title="Glicko-1 rating system: rating±deviation (provisional if deviation>100)">Glicko-1</abbr></th></tr>';
     for (const [i, p] of leaderboard.entries()) {
       const { h, s, l } = hsl(toID(p.name));
       const name = `<font color="${hslToHex(h, s, l)}">${p.name}</font>`;
-      buf += `<tr><td>${i + 1}</td><td>${name}</td><td><strong>${
-        p.elo
-      }</strong></td><td>${p.gxe.toFixed(1)}%</td><td>${p.glicko} ± ${p.glickodev}</td></tr>`;
+      buf += `<tr><td>${i + 1}</td><td>${name}</td><td><strong>${p.elo}</strong></td>`;
+      buf += `<td>${p.gxe.toFixed(1)}%</td><td>${p.glicko} ± ${p.glickodev}</td></tr>`;
     }
     buf += '</table></div>';
     return buf;
   }
 
+  showdiffs(num: number) {
+    if (this.diffs) clearInterval(this.diffs);
+    this.diffs = setInterval(async () => {
+      const leaderboard = await this.getLeaderboard();
+      if (!leaderboard.length) return;
+      if (this.leaderboard) {
+        this.reportDiff(leaderboard, num);
+      }
+      this.leaderboard = leaderboard;
+    }, INTERVAL);
+  }
+
+  // FIXME: obviously this can be optimized...
+  reportDiff(leaderboard: LeaderboardEntry[], num: number) {
+    const n = Math.abs(num);
+    const diffs: Map<ID, [string, number, number, number]> = new Map();
+
+    for (const [i, prev] of this.leaderboard!.slice(0, n).entries()) {
+      const id = toID(prev.name);
+      const oldrank = i + 1;
+      let newrank = leaderboard.findIndex(e => toID(e.name) === id) + 1;
+      let elo: number;
+      if (!newrank) {
+        newrank = Infinity;
+        elo = 0;
+      } else {
+        elo = leaderboard[newrank - 1].elo;
+      }
+      if (oldrank !== newrank) diffs.set(id, [prev.name, elo, oldrank, newrank]);
+    }
+    for (const [i, current] of leaderboard.slice(0, n).entries()) {
+      const id = toID(current.name);
+      const newrank = i + 1;
+      let oldrank = this.leaderboard!.findIndex(e => toID(e.name) === id) + 1;
+      if (!oldrank) oldrank = Infinity;
+      if (oldrank !== newrank) diffs.set(id, [current.name, current.elo, oldrank, newrank]);
+    }
+
+    if (!diffs.size) return;
+
+    const sorted = Array.from(diffs.values()).sort((a, b) => a[3] - b[3]);
+    const messages = [];
+    for (const [name, elo, oldrank, newrank] of sorted) {
+      if (num < 0 && !((oldrank > n && newrank <= n) || (oldrank <= n && newrank > n))) continue;
+      const symbol = oldrank < newrank ? '▼' : '▲';
+      const rank = newrank === Infinity ? '?' : newrank;
+      const rating = elo || '?';
+      const message = newrank > n ? `__${name} (${rating})__` : `${name} (${rating})`;
+      messages.push(`${symbol}**${rank}.** ${message}`);
+    }
+
+    this.report(messages.join(' '));
+  }
+
+  hidediffs() {
+    if (this.diffs) {
+      clearInterval(this.diffs);
+      this.diffs = undefined;
+      this.leaderboard = undefined;
+    }
+  }
+
   start() {
+    if (this.started) return;
     this.report(`/status ${this.rating}`);
     this.started = setInterval(() => {
       const filter = this.rating && !this.users.size ? `, ${this.rating}` : '';
