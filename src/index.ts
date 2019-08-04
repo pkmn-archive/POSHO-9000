@@ -6,7 +6,6 @@ import * as path from 'path';
 import * as querystring from 'querystring';
 
 import http from 'axios';
-import * as cheerio from 'cheerio';
 import * as ws from 'websocket';
 
 const MINUTE = 60000;
@@ -132,7 +131,7 @@ class Client {
       const response = await http.post(url, data);
       const result = JSON.parse(response.data.replace(/^]/, ''));
       this.report(`/trn ${this.config.nickname},0,${result.assertion}`);
-      this.report('/join ' + this.config.room);
+      this.report(`/join ${this.config.room}`);
       this.report('/avatar oak-gen1rb');
     } catch (err) {
       console.error(err);
@@ -157,7 +156,7 @@ class Client {
 
   stylePlayer(player: string) {
     const { h, s, l } = hsl(toID(player));
-    return `<strong><font color="${hslToHex(h, s, l)}">${player}</font></strong>`;
+    return `<strong style="color: hsl(${h},${s}%,${l}%)">${player}</strong>`;
   }
 
   tracking(battle: Battle) {
@@ -281,40 +280,20 @@ class Client {
   }
 
   async getLeaderboard(num?: number) {
-    const url = `https://play.pokemonshowdown.com/~~${this.config.serverid}/ladder.php`;
-    const params = {
-      format: this.format,
-      output: 'html',
-      prefix: this.prefix,
-    };
-
+    const url = `https://pokemonshowdown.com//ladder/${this.format}.json`;
     const leaderboard: LeaderboardEntry[] = [];
     try {
-      const response = await http.get(url, { params });
-      const $ = cheerio.load(response.data);
-      $('tr').each((i, tr) => {
-        if (!i) return;
-        const entry = {} as LeaderboardEntry;
-        $(tr)
-          .children('td')
-          .each((j, td) => {
-            const text = $(td).text();
-            if (j === 0) {
-              return; // rank === i + 1
-            } else if (j === 1) {
-              entry.name = text;
-            } else if (j === 2) {
-              entry.elo = Number(text);
-            } else if (j === 3) {
-              entry.gxe = Number(text.slice(0, -1));
-            } else if (j === 4) {
-              const [val, dev] = text.split(' ± ');
-              entry.glicko = Number(val);
-              entry.glickodev = Number(dev);
-            }
-          });
-        leaderboard.push(entry);
-      });
+      const response = await http.get(url);
+      for (const data of response.data.toplist) {
+        if (!data.userid.startsWith(this.prefix)) continue;
+        leaderboard.push({
+          name: data.username,
+          elo: Math.floor(data.elo),
+          gxe: data.gxe,
+          glicko: Math.floor(data.rpr),
+          glickodev: Math.floor(data.rprd),
+        });
+      }
       if (num) {
         const table = this.styleLeaderboard(leaderboard.slice(0, num));
         this.report(`/addhtmlbox ${table}`);
@@ -335,9 +314,11 @@ class Client {
       '<th><abbr title="Glicko-1 rating system: rating±deviation (provisional if deviation>100)">Glicko-1</abbr></th></tr>';
     for (const [i, p] of leaderboard.entries()) {
       const { h, s, l } = hsl(toID(p.name));
-      const name = `<font color="${hslToHex(h, s, l)}">${p.name}</font>`;
-      buf += `<tr><td>${i + 1}</td><td><strong class='username'>${name}</strong></td><td><strong>${p.elo}</strong></td>`;
-      buf += `<td>${p.gxe.toFixed(1)}%</td><td>${p.glicko} ± ${p.glickodev}</td></tr>`;
+      buf +=
+        `<tr><td>${i + 1}</td>` +
+        `<td><strong class='username' style="color: hsl(${h},${s}%,${l}%)">${p.name}</strong></td>` +
+        `<td><strong>${p.elo}</strong></td><td>${p.gxe.toFixed(1)}%</td>` +
+        `<td>${p.glicko} ± ${p.glickodev}</td></tr>`;
     }
     buf += '</table></div></center>';
     return buf;
@@ -492,35 +473,6 @@ function hsl(name: string) {
 
   L += HLmod;
   return {h: H, s: S, l: L};
-}
-
-function hslToHex(h: number, s: number, l: number) {
-  h /= 360;
-  s /= 100;
-  l /= 100;
-  let r, g, b;
-  if (s === 0) {
-    r = g = b = l; // achromatic
-  } else {
-    const hue2rgb = (p: number, q: number, t: number) => {
-      if (t < 0) t += 1;
-      if (t > 1) t -= 1;
-      if (t < 1 / 6) return p + (q - p) * 6 * t;
-      if (t < 1 / 2) return q;
-      if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
-      return p;
-    };
-    const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
-    const p = 2 * l - q;
-    r = hue2rgb(p, q, h + 1 / 3);
-    g = hue2rgb(p, q, h);
-    b = hue2rgb(p, q, h - 1 / 3);
-  }
-  const toHex = (x: number) => {
-    const hex = Math.round(x * 255).toString(16);
-    return hex.length === 1 ? '0' + hex : hex;
-  };
-  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
 const client = new Client(JSON.parse(fs.readFileSync(path.resolve(ROOT, process.argv[2]), 'utf8')));
