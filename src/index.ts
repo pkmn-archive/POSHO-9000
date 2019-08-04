@@ -154,7 +154,7 @@ class Client {
   }
 
   stylePlayer(player: string) {
-    const { h, s, l } = hsl(player);
+    const { h, s, l } = hsl(toID(player));
     return `<strong><font color="${hslToHex(h, s, l)}">${player}</font></strong>`;
   }
 
