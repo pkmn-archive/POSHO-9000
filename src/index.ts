@@ -108,6 +108,8 @@ class Client {
       this.onChallstr(parts);
     } else if (parts[1] === 'queryresponse') {
       this.onQueryresponse(parts);
+    } else if (parts[1] === 'error') {
+      console.error(new Error(parts[2]));
     } else if (CHAT.has(parts[1])) {
       this.onChat(parts);
     }
@@ -314,7 +316,7 @@ class Client {
         leaderboard.push(entry);
       });
       if (num) {
-        const table = this.styleLeaderboard(leaderboard.slice(0, Math.min(num, 25)));
+        const table = this.styleLeaderboard(leaderboard.slice(0, num));
         this.report(`/addhtmlbox ${table}`);
       }
     } catch (err) {
@@ -326,7 +328,7 @@ class Client {
   }
 
   styleLeaderboard(leaderboard: LeaderboardEntry[]) {
-    let buf = '<div class="ladder"><table>';
+    let buf = '<center><div class="ladder" style="max-height: 250px; overflow-y: auto"><table>';
     buf +=
       '<tr><th></th><th>Name</th><th><abbr title="Elo rating">Elo</abbr></th>' +
       '<th><abbr title="user\'s percentage chance of winning a random battle (aka GLIXARE)">GXE</abbr></th>' +
@@ -334,10 +336,10 @@ class Client {
     for (const [i, p] of leaderboard.entries()) {
       const { h, s, l } = hsl(toID(p.name));
       const name = `<font color="${hslToHex(h, s, l)}">${p.name}</font>`;
-      buf += `<tr><td>${i + 1}</td><td>${name}</td><td><strong>${p.elo}</strong></td>`;
+      buf += `<tr><td>${i + 1}</td><td><strong class='username'>${name}</strong></td><td><strong>${p.elo}</strong></td>`;
       buf += `<td>${p.gxe.toFixed(1)}%</td><td>${p.glicko} ± ${p.glickodev}</td></tr>`;
     }
-    buf += '</table></div>';
+    buf += '</table></div></center>';
     return buf;
   }
 
