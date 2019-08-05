@@ -9,6 +9,7 @@ import http from 'axios';
 import * as ws from 'websocket';
 
 const MINUTE = 60000;
+const HOUR = MINUTE * 60;
 const INTERVAL = 1000;
 
 const ROOT = path.resolve(__dirname, '..');
@@ -61,6 +62,7 @@ class Client {
   private leaderboard?: LeaderboardEntry[];
   private diffs?: NodeJS.Timeout;
   private started?: NodeJS.Timeout;
+  private cooldown?: Date;
 
   constructor(config: Config) {
     this.config = config;
@@ -179,7 +181,9 @@ class Client {
   onChat(parts: string[]) {
     const user = parts[3];
     const message = parts.slice(4).join('|');
-    if (AUTH.has(user.charAt(0)) && message.charAt(0) === '.') {
+    const authed = AUTH.has(user.charAt(0)) || toID(user) === 'pre';
+    const voiced = '+' === user.charAt(0);
+    if (message.charAt(0) === '.' && (authed || voiced)) {
       console.info(`[${HHMMSS()}] ${user}: ${message.trim()}`);
 
       const parts = message.substring(1).split(' ');
@@ -189,6 +193,19 @@ class Client {
         .join(' ')
         .toLowerCase()
         .trim();
+
+      if (voiced) {
+        if (command === 'leaderboard') {
+          const now = new Date();
+          if (!this.cooldown || +now - +this.cooldown >= HOUR) {
+            this.cooldown = now;
+            this.getLeaderboard(Number(argument) || 10);
+          } else {
+            this.report('``.leaderboard`` may only be used by voiced users once an hour.')
+          }
+        }
+        return;
+      }
 
       switch (command) {
         case 'format':
