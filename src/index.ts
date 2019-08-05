@@ -201,7 +201,7 @@ class Client {
             this.cooldown = now;
             this.getLeaderboard(Number(argument) || 10);
           } else {
-            this.report('``.leaderboard`` may only be used by voiced users once an hour.')
+            this.report('``.leaderboard`` may only be used by voiced users once an hour.');
           }
         }
         return;
@@ -331,8 +331,9 @@ class Client {
       '<th><abbr title="Glicko-1 rating system: rating±deviation (provisional if deviation>100)">Glicko-1</abbr></th></tr>';
     for (const [i, p] of leaderboard.entries()) {
       const { h, s, l } = hsl(toID(p.name));
+      const link = `https://www.smogon.com/forums/search/1/?q="${encodeURIComponent(p.name)}"`;
       buf +=
-        `<tr><td>${i + 1}</td>` +
+        `<tr><td><a href='${link}' style="text-decoration: none; color: black;">${i + 1}</a></td>` +
         `<td><strong class='username' style="color: hsl(${h},${s}%,${l}%)">${p.name}</strong></td>` +
         `<td><strong>${p.elo}</strong></td><td>${p.gxe.toFixed(1)}%</td>` +
         `<td>${p.glicko} ± ${p.glickodev}</td></tr>`;
