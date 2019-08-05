@@ -9,7 +9,6 @@ import http from 'axios';
 import * as ws from 'websocket';
 
 const MINUTE = 60000;
-const HOUR = MINUTE * 60;
 const INTERVAL = 1000;
 
 const ROOT = path.resolve(__dirname, '..');
@@ -65,6 +64,7 @@ class Client {
 
   private cooldown?: Date;
   private changed?: boolean;
+  private lines: number;
 
   constructor(config: Config) {
     this.config = config;
@@ -77,6 +77,7 @@ class Client {
 
     this.connection = null;
     this.queue = Promise.resolve();
+    this.lines = 0;
   }
 
   connect() {
@@ -136,7 +137,7 @@ class Client {
       const result = JSON.parse(response.data.replace(/^]/, ''));
       this.report(`/trn ${this.config.nickname},0,${result.assertion}`);
       this.report(`/join ${this.config.room}`);
-      this.report('/avatar oak-gen1rb');
+      this.report('/avatar blackbelt-gen2');
     } catch (err) {
       console.error(err);
       this.onChallstr(parts);
@@ -180,8 +181,17 @@ class Client {
     return false;
   }
 
+  leaderboardCooldown(now: Date) {
+    if (!this.cooldown) return true;
+    const wait = Math.floor(+now - +this.cooldown / MINUTE);
+    if (this.lines < 10 || wait < 5) return false;
+    const factor = this.changed ? 3 : 1;
+    return factor * (wait + this.lines) >= 60;
+  }
+
   onChat(parts: string[]) {
     const user = parts[3];
+    if (toID(user) !== toID(this.config.nickname)) this.lines++;
     const message = parts.slice(4).join('|');
     const authed = AUTH.has(user.charAt(0)) || toID(user) === 'pre';
     const voiced = '+' === user.charAt(0);
@@ -199,13 +209,11 @@ class Client {
       if (voiced) {
         if (command === 'leaderboard') {
           const now = new Date();
-          if (this.changed || !this.cooldown || +now - +this.cooldown >= HOUR) {
+          if (this.leaderboardCooldown(now)) {
             this.cooldown = now;
             this.getLeaderboard(Number(argument) || 10);
           } else {
-            const minutes = Math.ceil(60 - ((+now - +this.cooldown) / MINUTE));
-            const duration = minutes === 1 ? `${minutes} minute.` : `${minutes} minutes.`;
-            this.report('``.leaderboard`` may only be used by voiced users once an hour, try again in ' + duration);
+            this.report('``.leaderboard`` has been used too recently, please try again later.');
           }
         }
         return;
@@ -320,6 +328,7 @@ class Client {
         const table = this.styleLeaderboard(leaderboard.slice(0, num));
         this.report(`/addhtmlbox ${table}`);
         this.changed = false;
+        this.lines = 0;
       }
     } catch (err) {
       console.error(err);
