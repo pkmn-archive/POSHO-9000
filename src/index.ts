@@ -62,7 +62,9 @@ class Client {
   private leaderboard?: LeaderboardEntry[];
   private diffs?: NodeJS.Timeout;
   private started?: NodeJS.Timeout;
+
   private cooldown?: Date;
+  private changed?: boolean;
 
   constructor(config: Config) {
     this.config = config;
@@ -197,11 +199,13 @@ class Client {
       if (voiced) {
         if (command === 'leaderboard') {
           const now = new Date();
-          if (!this.cooldown || +now - +this.cooldown >= HOUR) {
+          if (this.changed || !this.cooldown || +now - +this.cooldown >= HOUR) {
             this.cooldown = now;
             this.getLeaderboard(Number(argument) || 10);
           } else {
-            this.report('``.leaderboard`` may only be used by voiced users once an hour.');
+            const minutes = Math.ceil(60 - ((+now - +this.cooldown) / MINUTE));
+            const duration = minutes === 1 ? `${minutes} minute.` : `${minutes} minutes.`;
+            this.report('``.leaderboard`` may only be used by voiced users once an hour, try again in ' + duration);
           }
         }
         return;
@@ -292,7 +296,8 @@ class Client {
       this.report(`Not currently tracking any users.`);
     } else {
       const users = Array.from(this.users.values()).join(', ');
-      this.report(`Currently tracking **${this.users.size}** users: ${users}`);
+      const plural = this.users.size === 1 ? 'user' : 'users';
+      this.report(`Currently tracking **${this.users.size}** ${plural}: ${users}`);
     }
   }
 
@@ -314,6 +319,7 @@ class Client {
       if (num) {
         const table = this.styleLeaderboard(leaderboard.slice(0, num));
         this.report(`/addhtmlbox ${table}`);
+        this.changed = false;
       }
     } catch (err) {
       console.error(err);
@@ -394,6 +400,7 @@ class Client {
     }
 
     this.report(messages.join(' '));
+    this.changed = true;
   }
 
   hidediffs() {
