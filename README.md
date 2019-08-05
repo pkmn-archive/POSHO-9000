@@ -64,4 +64,4 @@ This code is heavily based on Konrad Borowski's (xfix)
 
 This code is distributed under the under the terms of the [MIT License][1].
 
-[1]: https://github.com/pkmn-cc/LadderBot/blob/master/stats/LICENSE
+[1]: https://github.com/pkmn-cc/LadderBot/blob/master/LICENSE
