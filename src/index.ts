@@ -185,7 +185,7 @@ class Client {
     if (!this.cooldown) return true;
     const wait = Math.floor(+now - +this.cooldown / MINUTE);
     if (this.lines < 10 || wait < 5) return false;
-    const factor = this.changed ? 3 : 1;
+    const factor = this.changed ? 4 : 1;
     return factor * (wait + this.lines) >= 60;
   }
 
@@ -272,6 +272,7 @@ class Client {
         case 'following':
           this.tracked();
           return;
+        case 'top':
         case 'leaderboard':
           this.getLeaderboard(Number(argument) || 10);
           return;
@@ -318,10 +319,10 @@ class Client {
         if (!data.userid.startsWith(this.prefix)) continue;
         leaderboard.push({
           name: data.username,
-          elo: Math.floor(data.elo),
+          elo: Math.round(data.elo),
           gxe: data.gxe,
-          glicko: Math.floor(data.rpr),
-          glickodev: Math.floor(data.rprd),
+          glicko: Math.round(data.rpr),
+          glickodev: Math.round(data.rprd),
         });
       }
       if (num) {
