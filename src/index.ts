@@ -11,6 +11,8 @@ import * as ws from 'websocket';
 const MINUTE = 60000;
 const INTERVAL = 1000;
 
+const DEADLINE = new Date('Thurs Aug 08 2019 15:00:00 GMT-0400');
+
 const ROOT = path.resolve(__dirname, '..');
 
 type ID = '' | string & { __isID: true };
@@ -189,6 +191,10 @@ class Client {
     return factor * (wait + this.lines) >= 60;
   }
 
+  deadline(now: Date) {
+    this.report(`**Time Remaining:** ${formatHHMMSS((+DEADLINE - +now), true)}`);
+  }
+
   onChat(parts: string[]) {
     const user = parts[3];
     if (toID(user) !== toID(this.config.nickname)) this.lines++;
@@ -207,14 +213,16 @@ class Client {
         .trim();
 
       if (voiced) {
+        const now = new Date();
         if (command === 'leaderboard') {
-          const now = new Date();
           if (this.leaderboardCooldown(now)) {
             this.cooldown = now;
             this.getLeaderboard(Number(argument) || 10);
           } else {
             this.report('``.leaderboard`` has been used too recently, please try again later.');
           }
+        } else if (['remaining', 'deadline'].includes(command)) {
+          this.deadline(now);
         }
         return;
       }
@@ -285,6 +293,10 @@ class Client {
         case 'stopdiffs':
         case 'hidediffs':
           this.hidediffs();
+          return;
+        case 'remaining':
+        case 'deadline':
+          this.deadline(new Date());
           return;
         case 'start':
           this.start();
@@ -508,6 +520,26 @@ function hsl(name: string) {
 
   L += HLmod;
   return {h: H, s: S, l: L};
+}
+
+function formatHHMMSS(ms: number, round?: boolean): string {
+  let s = ms / 1000;
+  const h = Math.floor(s / 3600);
+  let m = Math.floor((s - (h * 3600)) / 60);
+  s = s - (h * 3600) - (m * 60);
+  if (round) {
+    s = Math.round(s);
+    if (s === 60) {
+      m++;
+      s = 0;
+    }
+  }
+
+  const time = [];
+  if (h > 0) time.push(`${h} hour${h === 1 ? '' : 's'}`);
+  if (m > 0) time.push(`${m} minute${m === 1 ? '' : 's'}`);
+  if (s > 0) time.push(`${s} second${s === 1 ? '' : 's'}`);
+  return time.join(' ');
 }
 
 const client = new Client(JSON.parse(fs.readFileSync(path.resolve(ROOT, process.argv[2]), 'utf8')));
