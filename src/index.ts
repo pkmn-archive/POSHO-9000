@@ -192,7 +192,7 @@ class Client {
   }
 
   deadline(now: Date) {
-    this.report(`**Time Remaining:** ${formatHHMMSS((+DEADLINE - +now), true)}`);
+    this.report(`**Time Remaining:** ${formatHHMMSS(+DEADLINE - +now, true)}`);
   }
 
   onChat(parts: string[]) {
@@ -524,14 +524,19 @@ function hsl(name: string) {
 
 function formatHHMMSS(ms: number, round?: boolean): string {
   let s = ms / 1000;
-  const h = Math.floor(s / 3600);
-  let m = Math.floor((s - (h * 3600)) / 60);
-  s = s - (h * 3600) - (m * 60);
+  let h = Math.floor(s / 3600);
+  let m = Math.floor((s - h * 3600) / 60);
+  s = s - h * 3600 - m * 60;
+
   if (round) {
     s = Math.round(s);
     if (s === 60) {
-      m++;
       s = 0;
+      m++;
+    }
+    if (m === 60) {
+      m = 0;
+      h++;
     }
   }
 
