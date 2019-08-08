@@ -361,7 +361,7 @@ class Client {
       const { h, s, l } = hsl(toID(p.name));
       const link = `https://www.smogon.com/forums/search/1/?q="${encodeURIComponent(p.name)}"`;
       buf +=
-        `<tr><td><a href='${link}' style="text-decoration: none; color: black;">${i + 1}</a></td>` +
+        `<tr><td><a href='${link}' class="subtle">${i + 1}</a></td>` +
         `<td><strong class='username' style="color: hsl(${h},${s}%,${l}%)">${p.name}</strong></td>` +
         `<td><strong>${p.elo}</strong></td><td>${p.gxe.toFixed(1)}%</td>` +
         `<td>${p.glicko} ± ${p.glickodev}</td></tr>`;
