@@ -10,8 +10,7 @@ import * as ws from 'websocket';
 
 const MINUTE = 60000;
 const INTERVAL = 1000;
-
-const DEADLINE = new Date('Thurs Aug 08 2019 15:00:00 GMT-0400');
+const FACTOR = 1.5;
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -23,12 +22,15 @@ interface Config {
   serverid: number;
 
   nickname: string;
+  avatar?: string;
   password: string;
   room: string;
 
   format?: string;
   prefix?: string;
   rating?: number;
+  deadline?: string;
+  cutoff?: number;
 }
 
 interface Battle {
@@ -37,8 +39,16 @@ interface Battle {
   minElo: number;
 }
 
+interface Leaderboard {
+  current?: LeaderboardEntry[];
+  last?: LeaderboardEntry[];
+  // NB: non prefixed
+  lookup: Map<ID, LeaderboardEntry>;
+}
+
 interface LeaderboardEntry {
   name: string;
+  rank?: number;
   elo: number;
   gxe: number;
   glicko: number;
@@ -56,30 +66,38 @@ class Client {
 
   private format: ID;
   private prefix: ID;
+  private deadline?: Date;
   private rating: number;
   private users: Set<ID>;
 
   private lastid?: string;
-  private leaderboard?: LeaderboardEntry[];
-  private diffs?: NodeJS.Timeout;
+  private showdiffs?: boolean;
   private started?: NodeJS.Timeout;
+
+  private leaderboard: Leaderboard;
 
   private cooldown?: Date;
   private changed?: boolean;
-  private lines: number;
+  private lines: { them: number; total: number };
 
-  constructor(config: Config) {
+  constructor(config: Readonly<Config>) {
     this.config = config;
-
-    this.format = toID(this.config.format);
-    this.prefix = toID(this.config.prefix);
-    this.rating = this.config.rating || 0;
-
-    this.users = new Set();
-
     this.connection = null;
     this.queue = Promise.resolve();
-    this.lines = 0;
+
+    this.format = toID(config.format);
+    this.prefix = toID(config.prefix);
+    this.rating = config.rating || 0;
+    if (config.deadline) {
+      const date = new Date(config.deadline);
+      if (+date) this.deadline = date;
+    }
+
+    this.users = new Set();
+    this.leaderboard = { lookup: new Map() };
+    this.showdiffs = false;
+
+    this.lines = { them: 0, total: 0 };
   }
 
   connect() {
@@ -139,7 +157,8 @@ class Client {
       const result = JSON.parse(response.data.replace(/^]/, ''));
       this.report(`/trn ${this.config.nickname},0,${result.assertion}`);
       this.report(`/join ${this.config.room}`);
-      this.report('/avatar blackbelt-gen2');
+      if (this.config.avatar) this.report(`/avatar ${this.config.avatar}`);
+      this.start();
     } catch (err) {
       console.error(err);
       this.onChallstr(parts);
@@ -150,15 +169,28 @@ class Client {
     const rooms: { [roomid: string]: Battle } = JSON.parse(parts[3]).rooms;
     const skipid = this.lastid;
     for (const [roomid, battle] of Object.entries(rooms)) {
-      if (!this.tracking(battle) || (skipid && skipid >= roomid)) continue;
+      const [rating, rmsg] = this.getRating(battle);
+      if (!this.tracking(battle, rating) || (skipid && skipid >= roomid)) continue;
 
       const style = (p: string) => this.stylePlayer(p);
       const msg = `Battle started between ${style(battle.p1)} and ${style(battle.p2)}`;
-      this.report(
-        `/addhtmlbox <a href="/${roomid}" class="ilink">${msg}. (rated: ${battle.minElo})</a>`
-      );
+      this.report(`/addhtmlbox <a href="/${roomid}" class="ilink">${msg}. ${rmsg}</a>`);
       if (!this.lastid || this.lastid < roomid) this.lastid = roomid;
     }
+  }
+
+  getRating(battle: Battle): [number, string] {
+    const p1 = this.leaderboard.lookup.get(toID(battle.p1));
+    const p2 = this.leaderboard.lookup.get(toID(battle.p2));
+    if (p1 && p2) return this.averageRating(p1.elo, p2.elo);
+    if (p1 && p1.elo > battle.minElo) return this.averageRating(p1.elo, battle.minElo);
+    if (p2 && p2.elo > battle.minElo) return this.averageRating(p2.elo, battle.minElo);
+    return [battle.minElo, `(min rating: ${battle.minElo})`];
+  }
+
+  averageRating(a: number, b: number): [number, string] {
+    const rating = Math.round((a + b) / 2);
+    return [rating, `(avg rating: ${rating})`];
   }
 
   stylePlayer(player: string) {
@@ -166,7 +198,7 @@ class Client {
     return `<strong style="color: hsl(${h},${s}%,${l}%)">${player}</strong>`;
   }
 
-  tracking(battle: Battle) {
+  tracking(battle: Battle, rating: number) {
     const p1 = toID(battle.p1);
     const p2 = toID(battle.p2);
 
@@ -177,7 +209,15 @@ class Client {
 
     // If a player has an our prefix, report if the battle is above the required rating
     if (p1.startsWith(this.prefix) || p2.startsWith(this.prefix)) {
-      return battle.minElo >= this.rating;
+      return rating >= this.rating;
+    }
+
+    // Report if a cutoff has been set and both prefixed players are within a factor of the cutoff
+    if (this.config.cutoff && p1.startsWith(this.prefix) && p2.startsWith(this.prefix)) {
+      const a = this.leaderboard.lookup.get(p1);
+      const b = this.leaderboard.lookup.get(p2);
+      const rank = this.config.cutoff * FACTOR;
+      return a && a.rank && a.rank <= rank && b && b.rank && b.rank <= rank;
     }
 
     return false;
@@ -186,18 +226,24 @@ class Client {
   leaderboardCooldown(now: Date) {
     if (!this.cooldown) return true;
     const wait = Math.floor(+now - +this.cooldown / MINUTE);
-    if (this.lines < 10 || wait < 5) return false;
-    const factor = this.changed ? 4 : 1;
-    return factor * (wait + this.lines) >= 60;
+    const lines = this.changed ? this.lines.them : this.lines.total;
+    if (lines < 10 && wait < 5) return false;
+    const factor = this.changed ? 6 : 1;
+    return factor * (wait + lines) >= 60;
   }
 
-  deadline(now: Date) {
-    this.report(`**Time Remaining:** ${formatHHMMSS(+DEADLINE - +now, true)}`);
+  getDeadline(now: Date) {
+    if (!this.deadline) {
+      this.report('No deadline has been set.');
+    } else {
+      this.report(`**Time Remaining:** ${formatTimeRemaining(+this.deadline - +now, true)}`);
+    }
   }
 
   onChat(parts: string[]) {
     const user = parts[3];
-    if (toID(user) !== toID(this.config.nickname)) this.lines++;
+    if (toID(user) !== toID(this.config.nickname)) this.lines.them++;
+    this.lines.total++;
     const message = parts.slice(4).join('|');
     const authed = AUTH.has(user.charAt(0)) || toID(user) === 'pre';
     const voiced = '+' === user.charAt(0);
@@ -214,33 +260,27 @@ class Client {
 
       if (voiced) {
         const now = new Date();
-        if (command === 'leaderboard') {
+        if (['leaderboard', 'top'].includes(command)) {
           if (this.leaderboardCooldown(now)) {
             this.cooldown = now;
-            this.getLeaderboard(Number(argument) || 10);
+            this.getLeaderboard(true);
           } else {
-            this.report('``.leaderboard`` has been used too recently, please try again later.');
+            const c = '``.' + command + '``';
+            this.report(`${c} has been used too recently given activity, please try again later.`);
           }
         } else if (['remaining', 'deadline'].includes(command)) {
-          this.deadline(now);
+          this.getDeadline(now);
         }
         return;
       }
 
       switch (command) {
-        case 'format':
-          const format = toID(argument);
-          if (format && format !== this.format) {
-            this.format = format;
-            this.leaderboard = undefined;
-          }
-          this.report(`**Format:** ${this.format}`);
-          return;
         case 'prefix':
           const prefix = toID(argument);
           if (prefix && prefix !== this.prefix) {
             this.prefix = prefix;
-            this.leaderboard = undefined;
+            this.leaderboard.current = undefined;
+            this.leaderboard.last = undefined;
           }
           this.report(`**Prefix:** ${this.prefix}`);
           return;
@@ -282,21 +322,25 @@ class Client {
           return;
         case 'top':
         case 'leaderboard':
-          this.getLeaderboard(Number(argument) || 10);
+          this.getLeaderboard(true);
           return;
         case 'showdiffs':
         case 'startdiffs':
         case 'unhidediffs':
-          this.showdiffs(Number(argument) || 10);
+          this.showdiffs = true;
           return;
         case 'unshowdiffs':
         case 'stopdiffs':
         case 'hidediffs':
-          this.hidediffs();
+          this.showdiffs = false;
           return;
         case 'remaining':
         case 'deadline':
-          this.deadline(new Date());
+          if (argument) {
+            const date = new Date(argument);
+            if (+date) this.deadline = date;
+          }
+          this.getDeadline(new Date());
           return;
         case 'start':
           this.start();
@@ -322,47 +366,65 @@ class Client {
     }
   }
 
-  async getLeaderboard(num?: number) {
+  async getLeaderboard(display?: boolean) {
     const url = `https://pokemonshowdown.com//ladder/${this.format}.json`;
     const leaderboard: LeaderboardEntry[] = [];
     try {
       const response = await http.get(url);
+      this.leaderboard.lookup = new Map();
       for (const data of response.data.toplist) {
-        if (!data.userid.startsWith(this.prefix)) continue;
-        leaderboard.push({
+        // TODO: move the rounding until later
+        const entry: LeaderboardEntry = {
           name: data.username,
           elo: Math.round(data.elo),
           gxe: data.gxe,
           glicko: Math.round(data.rpr),
           glickodev: Math.round(data.rprd),
-        });
+        };
+        this.leaderboard.lookup.set(data.userid, entry);
+        if (!data.userid.startsWith(this.prefix)) continue;
+        entry.rank = leaderboard.length + 1;
+        leaderboard.push(entry);
       }
-      if (num) {
-        const table = this.styleLeaderboard(leaderboard.slice(0, num));
-        this.report(`/addhtmlbox ${table}`);
+      if (display) {
+        this.report(`/addhtmlbox ${this.styleLeaderboard(leaderboard)}`);
+        this.leaderboard.last = leaderboard;
         this.changed = false;
-        this.lines = 0;
+        this.lines = { them: 0, total: 0 };
       }
     } catch (err) {
       console.error(err);
-      if (num) this.report(`Unable to fetch the leaderboard for ${this.prefix}.`);
+      if (display) this.report(`Unable to fetch the leaderboard for ${this.prefix}.`);
     }
 
     return leaderboard;
   }
 
   styleLeaderboard(leaderboard: LeaderboardEntry[]) {
+    const diffs = this.leaderboard.last
+      ? this.getDiffs(this.leaderboard.last, leaderboard)
+      : new Map();
     let buf = '<center><div class="ladder" style="max-height: 250px; overflow-y: auto"><table>';
     buf +=
       '<tr><th></th><th>Name</th><th><abbr title="Elo rating">Elo</abbr></th>' +
       '<th><abbr title="user\'s percentage chance of winning a random battle (aka GLIXARE)">GXE</abbr></th>' +
       '<th><abbr title="Glicko-1 rating system: rating±deviation (provisional if deviation>100)">Glicko-1</abbr></th></tr>';
     for (const [i, p] of leaderboard.entries()) {
-      const { h, s, l } = hsl(toID(p.name));
+      const id = toID(p.name);
+      const { h, s, l } = hsl(id);
       const link = `https://www.smogon.com/forums/search/1/?q="${encodeURIComponent(p.name)}"`;
+      const diff = diffs.get(id);
+      let rank = `${i + 1}`;
+      if (diff) {
+        const symbol =
+          diff[2] < diff[3]
+            ? '<span style="color: #F00">▼</span>'
+            : '<span style="color: #008000">▲</span>';
+        rank = `${symbol}${rank}`;
+      }
       buf +=
-        `<tr><td><a href='${link}' class="subtle">${i + 1}</a></td>` +
-        `<td><strong class='username' style="color: hsl(${h},${s}%,${l}%)">${p.name}</strong></td>` +
+        `<tr><td style="text-align: right"><a href="${link}" class="subtle">${rank}</a></td>` +
+        `<td><strong class="username" style="color: hsl(${h},${s}%,${l}%)">${p.name}</strong></td>` +
         `<td><strong>${p.elo}</strong></td><td>${p.gxe.toFixed(1)}%</td>` +
         `<td>${p.glicko} ± ${p.glickodev}</td></tr>`;
     }
@@ -370,75 +432,75 @@ class Client {
     return buf;
   }
 
-  showdiffs(num: number) {
-    if (this.diffs) clearInterval(this.diffs);
-    this.diffs = setInterval(async () => {
-      const leaderboard = await this.getLeaderboard();
-      if (!leaderboard.length) return;
-      if (this.leaderboard) {
-        this.reportDiff(leaderboard, num);
-      }
-      this.leaderboard = leaderboard;
-    }, INTERVAL);
-  }
-
-  // FIXME: obviously this can be optimized...
-  reportDiff(leaderboard: LeaderboardEntry[], num: number) {
-    const n = Math.abs(num);
+  getDiffs(last: LeaderboardEntry[], current: LeaderboardEntry[], num?: number) {
     const diffs: Map<ID, [string, number, number, number]> = new Map();
 
-    for (const [i, prev] of this.leaderboard!.slice(0, n).entries()) {
-      const id = toID(prev.name);
+    const lastN = num ? last.slice(0, num) : last;
+    for (const [i, player] of lastN.entries()) {
+      const id = toID(player.name);
       const oldrank = i + 1;
-      let newrank = leaderboard.findIndex(e => toID(e.name) === id) + 1;
+      let newrank = current.findIndex(e => toID(e.name) === id) + 1;
       let elo: number;
       if (!newrank) {
         newrank = Infinity;
         elo = 0;
       } else {
-        elo = leaderboard[newrank - 1].elo;
+        elo = current[newrank - 1].elo;
       }
-      if (oldrank !== newrank) diffs.set(id, [prev.name, elo, oldrank, newrank]);
-    }
-    for (const [i, current] of leaderboard.slice(0, n).entries()) {
-      const id = toID(current.name);
-      const newrank = i + 1;
-      let oldrank = this.leaderboard!.findIndex(e => toID(e.name) === id) + 1;
-      if (!oldrank) oldrank = Infinity;
-      if (oldrank !== newrank) diffs.set(id, [current.name, current.elo, oldrank, newrank]);
+      if (oldrank !== newrank) diffs.set(id, [player.name, elo, oldrank, newrank]);
     }
 
+    const currentN = num ? current.slice(0, num) : current;
+    for (const [i, player] of currentN.entries()) {
+      const id = toID(player.name);
+      const newrank = i + 1;
+      let oldrank = last.findIndex(e => toID(e.name) === id) + 1;
+      if (!oldrank) oldrank = Infinity;
+      if (oldrank !== newrank) diffs.set(id, [player.name, player.elo, oldrank, newrank]);
+    }
+
+    return diffs;
+  }
+
+  trackChanges(leaderboard: LeaderboardEntry[], display?: boolean) {
+    if (!this.leaderboard.current || !this.config.cutoff) return;
+    const n = this.config.cutoff;
+    const diffs = this.getDiffs(this.leaderboard.current, leaderboard, n * FACTOR);
     if (!diffs.size) return;
 
     const sorted = Array.from(diffs.values()).sort((a, b) => a[3] - b[3]);
     const messages = [];
     for (const [name, elo, oldrank, newrank] of sorted) {
-      if (num < 0 && !((oldrank > n && newrank <= n) || (oldrank <= n && newrank > n))) continue;
-      const symbol = oldrank < newrank ? '▼' : '▲';
-      const rank = newrank === Infinity ? '?' : newrank;
-      const rating = elo || '?';
-      const message = newrank > n ? `__${name} (${rating})__` : `${name} (${rating})`;
-      messages.push(`${symbol}**${rank}.** ${message}`);
+      if (!((oldrank > n && newrank <= n) || (oldrank <= n && newrank > n))) {
+        this.changed = true;
+      }
+
+      if (display) {
+        const symbol = oldrank < newrank ? '▼' : '▲';
+        const rank = newrank === Infinity ? '?' : newrank;
+        const rating = elo || '?';
+        const message = newrank > n ? `__${name} (${rating})__` : `${name} (${rating})`;
+        messages.push(`${symbol}**${rank}.** ${message}`);
+      }
     }
 
-    this.report(messages.join(' '));
-    this.changed = true;
-  }
-
-  hidediffs() {
-    if (this.diffs) {
-      clearInterval(this.diffs);
-      this.diffs = undefined;
-      this.leaderboard = undefined;
-    }
+    if (display) this.report(messages.join(' '));
   }
 
   start() {
     if (this.started) return;
+
     this.report(`/status ${this.rating}`);
-    this.started = setInterval(() => {
+    this.started = setInterval(async () => {
+      // Battles
       const filter = this.rating && !this.users.size ? `, ${this.rating}` : '';
       this.report(`/cmd roomlist ${this.format}${filter}`);
+
+      // Leaderboard
+      const leaderboard = await this.getLeaderboard();
+      if (!leaderboard.length) return;
+      if (this.leaderboard) this.trackChanges(leaderboard, this.showdiffs);
+      this.leaderboard.current = leaderboard;
     }, INTERVAL);
   }
 
@@ -447,6 +509,8 @@ class Client {
       clearInterval(this.started);
       this.started = undefined;
       this.report(`/status (STOPPED) ${this.rating}`);
+      this.leaderboard.current = undefined;
+      this.leaderboard.last = undefined;
     }
   }
 
@@ -522,7 +586,7 @@ function hsl(name: string) {
   return {h: H, s: S, l: L};
 }
 
-function formatHHMMSS(ms: number, round?: boolean): string {
+function formatTimeRemaining(ms: number, round?: boolean): string {
   let s = ms / 1000;
   let h = Math.floor(s / 3600);
   let m = Math.floor((s - h * 3600) / 60);
@@ -547,5 +611,4 @@ function formatHHMMSS(ms: number, round?: boolean): string {
   return time.join(' ');
 }
 
-const client = new Client(JSON.parse(fs.readFileSync(path.resolve(ROOT, process.argv[2]), 'utf8')));
-client.connect();
+new Client(JSON.parse(fs.readFileSync(path.resolve(ROOT, process.argv[2]), 'utf8'))).connect();
