@@ -423,7 +423,7 @@ class Client {
         rank = `${symbol}${rank}`;
       }
       buf +=
-        `<tr><td style="text-align: right"><a href="${link}" class="subtle">${rank}</a></td>` +
+        `<tr><td style="text-align: right"><a href='${link}' class="subtle">${rank}</a></td>` +
         `<td><strong class="username" style="color: hsl(${h},${s}%,${l}%)">${p.name}</strong></td>` +
         `<td><strong>${p.elo}</strong></td><td>${p.gxe.toFixed(1)}%</td>` +
         `<td>${p.glicko} ± ${p.glickodev}</td></tr>`;
