@@ -73,6 +73,7 @@ class Client {
   private lastid?: string;
   private showdiffs?: boolean;
   private started?: NodeJS.Timeout;
+  private final?: NodeJS.Timeout;
 
   private leaderboard: Leaderboard;
 
@@ -88,16 +89,38 @@ class Client {
     this.format = toID(config.format);
     this.prefix = toID(config.prefix);
     this.rating = config.rating || 0;
-    if (config.deadline) {
-      const date = new Date(config.deadline);
-      if (+date) this.deadline = date;
-    }
+    if (config.deadline) this.setDeadline(config.deadline);
 
     this.users = new Set();
     this.leaderboard = { lookup: new Map() };
     this.showdiffs = false;
 
     this.lines = { them: 0, total: 0 };
+  }
+
+  setDeadline(argument: string) {
+    const date = new Date(argument);
+    if (!+date) return;
+
+    this.deadline = date;
+    if (this.final) clearTimeout(this.final);
+    // We set the timer to fire slightly before the deadline and then
+    // repeatedly do process.nextTick checks for accuracy
+    this.final = setTimeout(() => {
+      this.stop();
+      this.captureFinalLeaderboard();
+    }, +this.deadline - Date.now() - 500);
+  }
+
+  async captureFinalLeaderboard() {
+    const now = new Date();
+    if (now < this.deadline!) {
+      process.nextTick(this.captureFinalLeaderboard.bind(this));
+      return;
+    }
+    const leaderboard = await this.getLeaderboard();
+    this.report(`/addhtmlbox ${this.styleLeaderboard(leaderboard, +now)}`);
+    this.deadline = undefined;
   }
 
   connect() {
@@ -336,10 +359,7 @@ class Client {
           return;
         case 'remaining':
         case 'deadline':
-          if (argument) {
-            const date = new Date(argument);
-            if (+date) this.deadline = date;
-          }
+          if (argument) this.setDeadline(argument);
           this.getDeadline(new Date());
           return;
         case 'start':
@@ -400,12 +420,19 @@ class Client {
     return leaderboard;
   }
 
-  styleLeaderboard(leaderboard: LeaderboardEntry[]) {
-    const diffs = this.leaderboard.last
-      ? this.getDiffs(this.leaderboard.last, leaderboard)
-      : new Map();
-    let buf = '<center><div class="ladder" style="max-height: 250px; overflow-y: auto"><table>';
+  styleLeaderboard(leaderboard: LeaderboardEntry[], final?: number) {
+    const diffs =
+      this.leaderboard.last && !final
+        ? this.getDiffs(this.leaderboard.last, leaderboard)
+        : new Map();
+    let buf = '<center>';
+    if (final) {
+      buf +=
+        `<h1 style="margin-bottom: 0.2em">Final Leaderboard - ${this.prefix}</h1>` +
+        `<div style="margin-bottom: 1em"><small><em>${final}</em></small></div>`;
+    }
     buf +=
+      '<div class="ladder" style="max-height: 250px; overflow-y: auto"><table>' +
       '<tr><th></th><th>Name</th><th><abbr title="Elo rating">Elo</abbr></th>' +
       '<th><abbr title="user\'s percentage chance of winning a random battle (aka GLIXARE)">GXE</abbr></th>' +
       '<th><abbr title="Glicko-1 rating system: rating±deviation (provisional if deviation>100)">Glicko-1</abbr></th></tr>';
