@@ -11,6 +11,7 @@ import * as ws from 'websocket';
 const MINUTE = 60000;
 const INTERVAL = 1000;
 const FACTOR = 1.5;
+const TOKEN = '.';
 
 const ROOT = path.resolve(__dirname, '..');
 
@@ -76,6 +77,7 @@ class Client {
   private final?: NodeJS.Timeout;
 
   private leaderboard: Leaderboard;
+  private loggedin: boolean;
 
   private cooldown?: Date;
   private changed?: boolean;
@@ -94,6 +96,7 @@ class Client {
     this.users = new Set();
     this.leaderboard = { lookup: new Map() };
     this.showdiffs = false;
+    this.loggedin = false;
 
     this.lines = { them: 0, total: 0 };
   }
@@ -157,6 +160,8 @@ class Client {
       this.onQueryresponse(parts);
     } else if (parts[1] === 'error') {
       console.error(new Error(parts[2]));
+    } else if (parts[1] === 'init') {
+      this.loggedin = true;
     } else if (CHAT.has(parts[1])) {
       this.onChat(parts);
     }
@@ -262,7 +267,6 @@ class Client {
       this.report(`**Time Remaining:** ${formatTimeRemaining(+this.deadline - +now, true)}`);
     }
   }
-
   onChat(parts: string[]) {
     const user = parts[3];
     if (toID(user) !== toID(this.config.nickname)) this.lines.them++;
@@ -270,7 +274,7 @@ class Client {
     const message = parts.slice(4).join('|');
     const authed = AUTH.has(user.charAt(0)) || toID(user) === 'pre';
     const voiced = '+' === user.charAt(0);
-    if (message.charAt(0) === '.' && (authed || voiced)) {
+    if (message.charAt(0) === TOKEN && (authed || voiced)) {
       console.info(`[${HHMMSS()}] ${user}: ${message.trim()}`);
 
       const parts = message.substring(1).split(' ');
@@ -543,7 +547,7 @@ class Client {
 
   report(message: string) {
     this.queue = this.queue.then(() => {
-      this.connection!.send(`${this.config.room}|${message}`.replace(/\n/g, ''));
+      this.connection!.send(`${this.loggedin ? this.config.room : ''}|${message}`.replace(/\n/g, ''));
       return new Promise(resolve => {
         setTimeout(resolve, 100);
       });
