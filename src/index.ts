@@ -253,7 +253,7 @@ class Client {
 
   leaderboardCooldown(now: Date) {
     if (!this.cooldown) return true;
-    const wait = Math.floor(+now - +this.cooldown / MINUTE);
+    const wait = Math.floor((+now - +this.cooldown) / MINUTE);
     const lines = this.changed ? this.lines.them : this.lines.total;
     if (lines < 10 && wait < 5) return false;
     const factor = this.changed ? 6 : 1;
@@ -285,8 +285,8 @@ class Client {
         .toLowerCase()
         .trim();
 
+      const now = new Date();
       if (voiced) {
-        const now = new Date();
         if (['leaderboard', 'top'].includes(command)) {
           if (this.leaderboardCooldown(now)) {
             this.cooldown = now;
@@ -349,6 +349,7 @@ class Client {
           return;
         case 'top':
         case 'leaderboard':
+          this.cooldown = now;
           this.getLeaderboard(true);
           return;
         case 'showdiffs':
