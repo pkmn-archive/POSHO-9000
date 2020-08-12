@@ -144,7 +144,7 @@ class Client {
   }
 
   onConnectionFailure(error?: Error) {
-    console.error('Error occured (%s), will attempt to resconnect in a minute', error);
+    console.error('Error occured (%s), will attempt to reconnect in a minute', error);
 
     setTimeout(this.connect.bind(this), MINUTE);
   }
@@ -255,7 +255,7 @@ class Client {
     if (!this.cooldown) return true;
     const wait = Math.floor((+now - +this.cooldown) / MINUTE);
     const lines = this.changed ? this.lines.them : this.lines.total;
-    if (lines < 10 && wait < 5) return false;
+    if (lines < 5 && wait < 3) return false;
     const factor = this.changed ? 6 : 1;
     return factor * (wait + lines) >= 60;
   }
@@ -525,8 +525,7 @@ class Client {
     this.report(`/status ${this.rating}`);
     this.started = setInterval(async () => {
       // Battles
-      const filter = this.rating && !this.users.size ? `, ${this.rating}` : '';
-      this.report(`/cmd roomlist ${this.format}${filter}`);
+      this.report(`/cmd roomlist ${this.format}`);
 
       // Leaderboard
       const leaderboard = await this.getLeaderboard();
