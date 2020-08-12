@@ -14,7 +14,6 @@ const FACTOR = 1.5;
 const TOKEN = '.';
 
 const ROOT = path.resolve(__dirname, '..');
-const LOG = fs.createWriteStream(path.join(ROOT, 'out.log'), {flags: 'w'});
 
 type ID = '' | string & { __isID: true };
 
@@ -145,7 +144,7 @@ class Client {
   }
 
   onConnectionFailure(error?: Error) {
-    console.error('Error occured (%s), will attempt to reconnect in a minute', error);
+    console.error('Error occured (%s), will attempt to resconnect in a minute', error);
 
     setTimeout(this.connect.bind(this), MINUTE);
   }
@@ -198,10 +197,9 @@ class Client {
     const rooms: { [roomid: string]: Battle } = JSON.parse(parts[3]).rooms;
     const skipid = this.lastid;
     for (const [roomid, battle] of Object.entries(rooms)) {
-      const [[rating, rmsg], log] = this.getRating(battle);
-      const tracking = this.tracking(battle, rating);
-      LOG.write(`[${roomid}] tracking:${tracking} skip:${skipid} = ${log}`)
-      if (!tracking || (skipid && skipid >= roomid)) continue;
+      const [rating, rmsg] = this.getRating(battle);
+      if (!this.tracking(battle, rating) || (skipid && skipid >= roomid)) continue;
+
       const style = (p: string) => this.stylePlayer(p);
       const msg = `Battle started between ${style(battle.p1)} and ${style(battle.p2)}`;
       this.report(`/addhtmlbox <a href="/${roomid}" class="ilink">${msg}. ${rmsg}</a>`);
@@ -209,14 +207,13 @@ class Client {
     }
   }
 
-  getRating(battle: Battle): [[number, string], string] {
+  getRating(battle: Battle): [number, string] {
     const p1 = this.leaderboard.lookup.get(toID(battle.p1));
     const p2 = this.leaderboard.lookup.get(toID(battle.p2));
-    let rating: [number, string] = [battle.minElo, `(min rating: ${battle.minElo})`];
-    if (p1 && p2) rating = this.averageRating(p1.elo, p2.elo);
-    else if (p1 && p1.elo > battle.minElo) rating = this.averageRating(p1.elo, battle.minElo);
-    else if (p2 && p2.elo > battle.minElo) rating = this.averageRating(p2.elo, battle.minElo);
-    return [rating, `minElo:${battle.minElo} / rating:${rating[0]} (${toID(battle.p1)}:${p1?.elo} ${toID(battle.p2)}:${p2?.elo})`];
+    if (p1 && p2) return this.averageRating(p1.elo, p2.elo);
+    if (p1 && p1.elo > battle.minElo) return this.averageRating(p1.elo, battle.minElo);
+    if (p2 && p2.elo > battle.minElo) return this.averageRating(p2.elo, battle.minElo);
+    return [battle.minElo, `(min rating: ${battle.minElo})`];
   }
 
   averageRating(a: number, b: number): [number, string] {
@@ -258,7 +255,6 @@ class Client {
     if (!this.cooldown) return true;
     const wait = Math.floor((+now - +this.cooldown) / MINUTE);
     const lines = this.changed ? this.lines.them : this.lines.total;
-    LOG.write(`changed:${this.changed} lines:${lines} cooldown:${this.cooldown} now:${now} = ${wait}`);
     if (lines < 10 && wait < 5) return false;
     const factor = this.changed ? 6 : 1;
     return factor * (wait + lines) >= 60;
@@ -280,7 +276,6 @@ class Client {
     const voiced = '+' === user.charAt(0);
     if (message.charAt(0) === TOKEN && (authed || voiced)) {
       console.info(`[${HHMMSS()}] ${user}: ${message.trim()}`);
-      LOG.write(`[${HHMMSS()}] ${user}: ${message.trim()}\n`);
 
       const parts = message.substring(1).split(' ');
       const command = toID(parts[0]);
