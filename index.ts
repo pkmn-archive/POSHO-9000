@@ -181,9 +181,9 @@ class Client {
     try {
       const response = await http.post(url, data);
       const result = JSON.parse(response.data.replace(/^]/, ''));
-      this.report(`/trn ${this.config.nickname},0,${result.assertion as string}`);
-      this.report(`/join ${this.config.room}`);
-      if (this.config.avatar) this.report(`/avatar ${this.config.avatar}`);
+      this.global(`/trn ${this.config.nickname},0,${result.assertion as string}`);
+      this.global(`/join ${this.config.room}`);
+      if (this.config.avatar) this.global(`/avatar ${this.config.avatar}`);
       this.start();
     } catch (err) {
       console.error(err);
@@ -546,9 +546,17 @@ class Client {
     }
   }
 
+  global(command: string) {
+    this.send(`|${command}`);
+  }
+
   report(message: string) {
+    this.send(`${this.config.room}|${message}`.replace(/\n/g, ''));
+  }
+
+  private send(message: string) {
     this.queue = this.queue.then(() => {
-      this.connection!.send(`${this.config.room}|${message}`.replace(/\n/g, ''));
+      this.connection!.send(message);
       return new Promise(resolve => {
         setTimeout(resolve, 100);
       });
