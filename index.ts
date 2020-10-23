@@ -392,7 +392,7 @@ class Client {
   }
 
   async getLeaderboard(display?: boolean) {
-    const url = `https://pokemonshowdown.com//ladder/${this.format}.json`;
+    const url = `https://pokemonshowdown.com/ladder/${this.format}.json`;
     const leaderboard: LeaderboardEntry[] = [];
     try {
       const response = await http.get(url);
