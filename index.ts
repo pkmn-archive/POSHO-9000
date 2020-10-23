@@ -77,7 +77,6 @@ class Client {
   private final?: NodeJS.Timeout;
 
   private leaderboard: Leaderboard;
-  private loggedin: boolean;
 
   private cooldown?: Date;
   private changed?: boolean;
@@ -94,11 +93,10 @@ class Client {
     if (config.deadline) this.setDeadline(config.deadline);
 
     this.users = new Set();
-    this.leaderboard = { lookup: new Map() };
+    this.leaderboard = {lookup: new Map()};
     this.showdiffs = false;
-    this.loggedin = false;
 
-    this.lines = { them: 0, total: 0 };
+    this.lines = {them: 0, total: 0};
   }
 
   setDeadline(argument: string) {
@@ -111,6 +109,7 @@ class Client {
     // repeatedly do process.nextTick checks for accuracy
     this.final = setTimeout(() => {
       this.stop();
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       this.captureFinalLeaderboard();
     }, +this.deadline - Date.now() - 500);
   }
@@ -127,7 +126,7 @@ class Client {
   }
 
   connect() {
-    const client = new ws.client();
+    const client = new ws.client(); // eslint-disable new-cap
     client.on('connect', this.onConnect.bind(this));
     client.on('connectFailed', this.onConnectionFailure.bind(this));
     client.connect(`ws://${this.config.server}:${this.config.serverport}/showdown/websocket`, []);
@@ -143,7 +142,7 @@ class Client {
     console.info('Connected to Showdown server');
   }
 
-  onConnectionFailure(error?: Error) {
+  onConnectionFailure(error?: Error | number) {
     console.error('Error occured (%s), will attempt to reconnect in a minute', error);
 
     setTimeout(this.connect.bind(this), MINUTE);
@@ -155,19 +154,18 @@ class Client {
     const parts = data.split('|');
 
     if (parts[1] === 'challstr') {
+      // eslint-disable-next-line @typescript-eslint/no-floating-promises
       this.onChallstr(parts);
     } else if (parts[1] === 'queryresponse') {
       this.onQueryresponse(parts);
     } else if (parts[1] === 'error') {
       console.error(new Error(parts[2]));
-    } else if (parts[1] === 'init') {
-      this.loggedin = true;
     } else if (CHAT.has(parts[1])) {
       this.onChat(parts);
     }
   }
 
-  async onChallstr(parts: string[]) {
+  async onChallstr(parts: string[]): Promise<void> {
     const id = parts[2];
     const str = parts[3];
 
@@ -183,13 +181,13 @@ class Client {
     try {
       const response = await http.post(url, data);
       const result = JSON.parse(response.data.replace(/^]/, ''));
-      this.report(`/trn ${this.config.nickname},0,${result.assertion}`);
+      this.report(`/trn ${this.config.nickname},0,${result.assertion as string}`);
       this.report(`/join ${this.config.room}`);
       if (this.config.avatar) this.report(`/avatar ${this.config.avatar}`);
       this.start();
     } catch (err) {
       console.error(err);
-      this.onChallstr(parts);
+      return this.onChallstr(parts);
     }
   }
 
@@ -222,7 +220,7 @@ class Client {
   }
 
   stylePlayer(player: string) {
-    const { h, s, l } = hsl(toID(player));
+    const {h, s, l} = hsl(toID(player));
     return `<strong style="color: hsl(${h},${s}%,${l}%)">${player}</strong>`;
   }
 
@@ -245,7 +243,7 @@ class Client {
       const a = this.leaderboard.lookup.get(p1);
       const b = this.leaderboard.lookup.get(p2);
       const rank = this.config.cutoff * FACTOR;
-      return a && a.rank && a.rank <= rank && b && b.rank && b.rank <= rank;
+      return a?.rank && a.rank <= rank && b?.rank && b.rank <= rank;
     }
 
     return false;
@@ -273,13 +271,13 @@ class Client {
     this.lines.total++;
     const message = parts.slice(4).join('|');
     const authed = AUTH.has(user.charAt(0)) || toID(user) === 'pre';
-    const voiced = '+' === user.charAt(0);
+    const voiced = user.charAt(0) === '+';
     if (message.charAt(0) === TOKEN && (authed || voiced)) {
       console.info(`[${HHMMSS()}] ${user}: ${message.trim()}`);
 
-      const parts = message.substring(1).split(' ');
-      const command = toID(parts[0]);
-      const argument = parts
+      const split = message.substring(1).split(' ');
+      const command = toID(split[0]);
+      const argument = split
         .slice(1)
         .join(' ')
         .toLowerCase()
@@ -290,6 +288,7 @@ class Client {
         if (['leaderboard', 'top'].includes(command)) {
           if (this.leaderboardCooldown(now)) {
             this.cooldown = now;
+            // eslint-disable-next-line @typescript-eslint/no-floating-promises
             this.getLeaderboard(true);
           } else {
             const c = '``.' + command + '``';
@@ -302,88 +301,89 @@ class Client {
       }
 
       switch (command) {
-        case 'prefix':
-          const prefix = toID(argument);
-          if (prefix && prefix !== this.prefix) {
-            this.prefix = prefix;
-            this.leaderboard.current = undefined;
-            this.leaderboard.last = undefined;
-          }
-          this.report(`**Prefix:** ${this.prefix}`);
-          return;
-        case 'elo':
-        case 'rating':
-          const rating = Number(argument);
-          if (rating) {
-            this.rating = rating;
-            this.report(`/status ${this.rating}`);
-          }
-          this.report(`**Rating:** ${this.rating}`);
-          return;
-        case 'add':
-        case 'track':
-        case 'watch':
-        case 'follow':
-          for (const user of argument.split(',')) {
-            this.users.add(toID(user));
-          }
-          this.tracked();
-          return;
-        case 'remove':
-        case 'untrack':
-        case 'unwatch':
-        case 'unfollow':
-          for (const user of argument.split(',')) {
-            this.users.delete(toID(user));
-          }
-          this.tracked();
-          return;
-        case 'list':
-        case 'tracked':
-        case 'tracking':
-        case 'watched':
-        case 'watching':
-        case 'followed':
-        case 'following':
-          this.tracked();
-          return;
-        case 'top':
-        case 'leaderboard':
-          this.cooldown = now;
-          this.getLeaderboard(true);
-          return;
-        case 'showdiffs':
-        case 'startdiffs':
-        case 'unhidediffs':
-          this.showdiffs = true;
-          return;
-        case 'unshowdiffs':
-        case 'stopdiffs':
-        case 'hidediffs':
-          this.showdiffs = false;
-          return;
-        case 'remaining':
-        case 'deadline':
-          if (argument) this.setDeadline(argument);
-          this.getDeadline(new Date());
-          return;
-        case 'start':
-          this.start();
-          return;
-        case 'stop':
-          this.stop();
-          return;
-        case 'leave':
-          this.stop();
-          this.report(`/leave`); // :(
-          return;
+      case 'prefix':
+        const prefix = toID(argument);
+        if (prefix && prefix !== this.prefix) {
+          this.prefix = prefix;
+          this.leaderboard.current = undefined;
+          this.leaderboard.last = undefined;
+        }
+        this.report(`**Prefix:** ${this.prefix}`);
+        return;
+      case 'elo':
+      case 'rating':
+        const rating = Number(argument);
+        if (rating) {
+          this.rating = rating;
+          this.report(`/status ${this.rating}`);
+        }
+        this.report(`**Rating:** ${this.rating}`);
+        return;
+      case 'add':
+      case 'track':
+      case 'watch':
+      case 'follow':
+        for (const u of argument.split(',')) {
+          this.users.add(toID(u));
+        }
+        this.tracked();
+        return;
+      case 'remove':
+      case 'untrack':
+      case 'unwatch':
+      case 'unfollow':
+        for (const u of argument.split(',')) {
+          this.users.delete(toID(u));
+        }
+        this.tracked();
+        return;
+      case 'list':
+      case 'tracked':
+      case 'tracking':
+      case 'watched':
+      case 'watching':
+      case 'followed':
+      case 'following':
+        this.tracked();
+        return;
+      case 'top':
+      case 'leaderboard':
+        this.cooldown = now;
+        // eslint-disable-next-line @typescript-eslint/no-floating-promises
+        this.getLeaderboard(true);
+        return;
+      case 'showdiffs':
+      case 'startdiffs':
+      case 'unhidediffs':
+        this.showdiffs = true;
+        return;
+      case 'unshowdiffs':
+      case 'stopdiffs':
+      case 'hidediffs':
+        this.showdiffs = false;
+        return;
+      case 'remaining':
+      case 'deadline':
+        if (argument) this.setDeadline(argument);
+        this.getDeadline(new Date());
+        return;
+      case 'start':
+        this.start();
+        return;
+      case 'stop':
+        this.stop();
+        return;
+      case 'leave':
+        this.stop();
+        this.report('/leave'); // :(
+        return;
       }
     }
   }
 
   tracked() {
     if (!this.users.size) {
-      this.report(`Not currently tracking any users.`);
+      this.report('Not currently tracking any users.');
     } else {
       const users = Array.from(this.users.values()).join(', ');
       const plural = this.users.size === 1 ? 'user' : 'users';
@@ -415,7 +415,7 @@ class Client {
         this.report(`/addhtmlbox ${this.styleLeaderboard(leaderboard)}`);
         this.leaderboard.last = leaderboard;
         this.changed = false;
-        this.lines = { them: 0, total: 0 };
+        this.lines = {them: 0, total: 0};
       }
     } catch (err) {
       console.error(err);
@@ -443,7 +443,7 @@ class Client {
       '<th><abbr title="Glicko-1 rating system: rating±deviation (provisional if deviation>100)">Glicko-1</abbr></th></tr>';
     for (const [i, p] of leaderboard.entries()) {
       const id = toID(p.name);
-      const { h, s, l } = hsl(id);
+      const {h, s, l} = hsl(id);
       const link = `https://www.smogon.com/forums/search/1/?q="${encodeURIComponent(p.name)}"`;
       const diff = diffs.get(id);
       let rank = `${i + 1}`;
@@ -523,6 +523,7 @@ class Client {
     if (this.started) return;
 
     this.report(`/status ${this.rating}`);
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     this.started = setInterval(async () => {
       // Battles
       this.report(`/cmd roomlist ${this.format}`);
@@ -547,7 +548,7 @@ class Client {
 
   report(message: string) {
     this.queue = this.queue.then(() => {
-      this.connection!.send(`${this.loggedin ? this.config.room : ''}|${message}`.replace(/\n/g, ''));
+      this.connection!.send(`${this.config.room}|${message}`.replace(/\n/g, ''));
       return new Promise(resolve => {
         setTimeout(resolve, 100);
       });
@@ -565,16 +566,15 @@ function HHMMSS() {
 }
 
 function toID(text: any): ID {
-  if (text && text.id) {
+  if (text?.id) {
     text = text.id;
-  } else if (text && text.userid) {
+  } else if (text?.userid) {
     text = text.userid;
   }
   if (typeof text !== 'string' && typeof text !== 'number') return '';
   return ('' + text).toLowerCase().replace(/[^a-z0-9]+/g, '') as ID;
 }
 
-// prettier-ignore
 function hsl(name: string) {
   const hash = crypto.createHash('md5').update(name).digest('hex');
   // tslint:disable:ban
@@ -587,21 +587,21 @@ function hsl(name: string) {
   const X = C * (1 - Math.abs((H / 60) % 2 - 1));
   const m = L / 100 - C / 2;
 
-  let R1;
-  let G1;
-  let B1;
+  let R1: number;
+  let G1: number;
+  let B1: number;
   switch (Math.floor(H / 60)) {
-    case 1: R1 = X; G1 = C; B1 = 0; break;
-    case 2: R1 = 0; G1 = C; B1 = X; break;
-    case 3: R1 = 0; G1 = X; B1 = C; break;
-    case 4: R1 = X; G1 = 0; B1 = C; break;
-    case 5: R1 = C; G1 = 0; B1 = X; break;
-    case 0: default: R1 = C; G1 = X; B1 = 0; break;
+  case 1: R1 = X; G1 = C; B1 = 0; break;
+  case 2: R1 = 0; G1 = C; B1 = X; break;
+  case 3: R1 = 0; G1 = X; B1 = C; break;
+  case 4: R1 = X; G1 = 0; B1 = C; break;
+  case 5: R1 = C; G1 = 0; B1 = X; break;
+  case 0: default: R1 = C; G1 = X; B1 = 0; break;
   }
   const R = R1 + m;
   const G = G1 + m;
   const B = B1 + m;
-   // 0.013 (dark blue) to 0.737 (yellow)
+  // 0.013 (dark blue) to 0.737 (yellow)
   const lum = R * R * R * 0.2126 + G * G * G * 0.7152 + B * B * B * 0.0722;
 
   let HLmod = (lum - 0.2) * -150; // -80 (yellow) to 28 (dark blue)

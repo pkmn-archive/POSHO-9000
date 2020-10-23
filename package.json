@@ -1,35 +1,38 @@
 {
-  "name": "ladderbot",
-  "version": "0.0.1",
-  "description": "Pokémon Showdown ladder bot",
-  "main": "build/index.js",
-  "types": "build/index.d.ts",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/pkmn-cc/LadderBot.git"
-  },
+  "private": true,
+  "repository": "github:pkmn/POSHO-9000",
   "author": "Kirk Scheibelhut",
   "license": "MIT",
   "dependencies": {
-    "@types/node": "^12.0.8",
-    "@types/websocket": "0.0.40",
-    "axios": "^0.19.0",
-    "websocket": "^1.0.26"
+    "@types/node": "^14.14.2",
+    "@types/websocket": "1.0.1",
+    "axios": "^0.21.0",
+    "websocket": "^1.0.32"
   },
   "devDependencies": {
-    "gts": "^1.0.0",
-    "source-map-support": "^0.5.12",
-    "typescript": "^3.5.2"
+    "source-map-support": "^0.5.19",
+    "@pkmn/eslint-config": "^1.1.0",
+    "@typescript-eslint/eslint-plugin": "^4.5.0",
+    "eslint": "^7.11.0",
+    "eslint-plugin-import": "^2.22.1",
+    "eslint-plugin-jest": "^24.1.0",
+    "typescript": "4.0.3"
   },
   "scripts": {
-    "check": "gts check",
-    "clean": "gts clean",
+    "lint": "eslint --cache *.ts",
+    "fix": "eslint --fix *.ts",
     "compile": "tsc -p .",
-    "fix": "gts fix",
     "start": "npm run compile && node build/index config.json",
     "test": "true",
     "prepare": "npm run compile",
     "pretest": "npm run compile",
-    "posttest": "npm run check"
+    "posttest": "npm run lint"
+  },
+  "eslintConfig": {
+    "extends": "@pkmn",
+    "rules": {
+      "new-cap": "off",
+      "max-len": "off"
+    }
   }
 }
