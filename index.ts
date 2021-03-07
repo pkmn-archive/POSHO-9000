@@ -194,6 +194,7 @@ class Client {
   onQueryresponse(parts: string[]) {
     const rooms: { [roomid: string]: Battle } = JSON.parse(parts[3]).rooms;
     const skipid = this.lastid;
+    if (!rooms) return;
     for (const [roomid, battle] of Object.entries(rooms)) {
       const [rating, rmsg] = this.getRating(battle);
       if (!this.tracking(battle, rating) || (skipid && skipid >= roomid)) continue;
