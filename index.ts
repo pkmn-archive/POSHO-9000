@@ -82,6 +82,8 @@ class Client {
   private changed?: boolean;
   private lines: { them: number; total: number };
 
+  private ok: boolean;
+
   constructor(config: Readonly<Config>) {
     this.config = config;
     this.connection = null;
@@ -97,6 +99,8 @@ class Client {
     this.showdiffs = false;
 
     this.lines = {them: 0, total: 0};
+
+    this.ok = false;
   }
 
   setDeadline(argument: string) {
@@ -126,6 +130,8 @@ class Client {
   }
 
   connect() {
+    if (this.ok) return;
+    if (this.connection?.connected) this.connection.close();
     const client = new ws.client(); // eslint-disable new-cap
     client.on('connect', this.onConnect.bind(this));
     client.on('connectFailed', this.onConnectionFailure.bind(this));
@@ -144,12 +150,14 @@ class Client {
 
   onConnectionFailure(error?: Error | number) {
     console.error('Error occured (%s), will attempt to reconnect in a minute', error);
+    this.ok = false;
 
     setTimeout(this.connect.bind(this), MINUTE);
   }
 
   onMessage(message: ws.IMessage) {
     if (message.type !== 'utf8' || !message.utf8Data) return;
+    this.ok = true;
     const data = message.utf8Data;
     const parts = data.split('|');
 
